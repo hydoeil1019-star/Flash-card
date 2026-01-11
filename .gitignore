@@ -1,0 +1,15 @@
+# created by virtualenv automatically
+*# 忽略虚拟环境
+venv/
+.venv/
+__pycache__/
+
+# 忽略本地生成的进度文件（保护隐私，也防止冲突）
+study_progress.json
+study_stats.json
+combined_bank.json
+combined_bank_v2.json
+
+# 忽略IDE配置
+.idea/
+.vscode/
