@@ -6,7 +6,7 @@ import shutil
 import re
 
 # ================= 配置与初始化 =================
-st.set_page_config(page_title="刷题神器(MD修复版)", page_icon="♾️", layout="wide")
+st.set_page_config(page_title="刷题神器(错题循环版)", page_icon="♾️", layout="wide")
 
 # 文件路径
 HISTORY_FILE = "study_progress.json"
@@ -17,14 +17,14 @@ COMBINED_BANK_FILE = "combined_bank.json"
 if 'all_questions' not in st.session_state: st.session_state.all_questions = []
 if 'wrong_questions' not in st.session_state: st.session_state.wrong_questions = set()
 
-# 保留双进度逻辑 (不动)
+# 保留双进度逻辑
 if 'practice_index' not in st.session_state: st.session_state.practice_index = 0
 if 'wrong_index' not in st.session_state: st.session_state.wrong_index = 0
 if 'mode' not in st.session_state: st.session_state.mode = 'practice'
 if 'stats' not in st.session_state: st.session_state.stats = {}
 
 
-# ================= 文件存取 (不动) =================
+# ================= 文件存取 =================
 
 def save_all_data():
     try:
@@ -79,7 +79,7 @@ def clear_local_data():
     st.session_state.wrong_index = 0
 
 
-# ================= 核心逻辑：Excel解析 (不动) =================
+# ================= 核心逻辑：Excel解析 =================
 
 def find_header_row(df, possible_headers=['题目', '题干', '问题', 'Question']):
     for idx, row in df.head(10).iterrows():
@@ -96,19 +96,10 @@ def standardize_columns(df):
     return df
 
 
-# ================= 【核心修改】针对你的截图优化的 MD 解析器 =================
+# ================= Markdown 解析器 =================
 
 def parse_markdown_custom(content):
-    """
-    专门适配：
-    **题目**: xxx
-    **选项**:
-    - xxx
-    - xxx
-    **答案**: A,B
-    """
     questions = []
-    # 按照 '## ' 或者 '##' 分割题目块
     blocks = re.split(r'(?:^|\n)##\s+', content)
 
     for block in blocks:
@@ -123,16 +114,14 @@ def parse_markdown_custom(content):
         }
 
         lines = block.strip().split('\n')
-        current_section = None  # 标记当前在读哪个部分
+        current_section = None
 
         for line in lines:
             line = line.strip()
             if not line: continue
 
-            # 1. 识别标题头 (兼容你的截图格式)
             if line.startswith('**题目**:') or line.startswith('**题目:**') or line.startswith('**Question**:'):
                 current_section = 'question'
-                # 提取冒号后面的内容
                 parts = line.split(':', 1)
                 if len(parts) > 1: q['question'] = parts[1].strip()
                 continue
@@ -145,7 +134,6 @@ def parse_markdown_custom(content):
                 current_section = 'answer'
                 parts = line.split(':', 1)
                 if len(parts) > 1:
-                    # 去掉空格，统一大写
                     q['answer'] = parts[1].strip().upper().replace(' ', '').replace('，', ',')
                 continue
 
@@ -155,36 +143,28 @@ def parse_markdown_custom(content):
                 if len(parts) > 1: q['analysis'] = parts[1].strip()
                 continue
 
-            # 2. 根据当前部分填充内容
             if current_section == 'question':
-                # 如果是多行题目，追加
                 q['question'] += ' ' + line
 
             elif current_section == 'options':
-                # 识别列表符号 - 或 *
                 if line.startswith('- ') or line.startswith('* '):
                     opt_text = line[2:].strip()
                     q['options'].append(opt_text)
-                # 兼容已经带A.的情况
                 elif re.match(r'^[A-F][\.,、]', line):
                     q['options'].append(line)
 
             elif current_section == 'analysis':
                 q['analysis'] += '\n' + line
 
-        # 3. 后处理：给选项加上 A. B. C.
         if q['options']:
-            # 如果第一个选项不是以 A. 开头，说明是无序列表，需要自动编号
             if not re.match(r'^[A-F][\.,、]', q['options'][0]):
                 lettered_opts = []
                 for i, opt in enumerate(q['options']):
-                    letter = chr(65 + i)  # 0->A, 1->B
+                    letter = chr(65 + i)
                     lettered_opts.append(f"{letter}. {opt}")
                 q['options'] = lettered_opts
 
-        # 4. 存入结果
         if q['question'] and q['options'] and q['answer']:
-            # 判断多选
             if ',' in q['answer'] or len(q['answer']) > 1:
                 q['type'] = '多选'
             questions.append(q)
@@ -193,11 +173,9 @@ def parse_markdown_custom(content):
 
 
 def load_data_from_file(file_path_or_buffer, is_path=False):
-    """读取数据主入口"""
     filename = file_path_or_buffer if is_path else file_path_or_buffer.name
 
     try:
-        # === A. Markdown 处理 (调用新解析器) ===
         if filename.lower().endswith('.md'):
             if is_path:
                 with open(file_path_or_buffer, 'r', encoding='utf-8') as f:
@@ -206,12 +184,9 @@ def load_data_from_file(file_path_or_buffer, is_path=False):
                 content = file_path_or_buffer.getvalue().decode('utf-8')
 
             md_questions = parse_markdown_custom(content)
-
-            # 临时补全ID
             for idx, q in enumerate(md_questions): q['id'] = idx
             return md_questions
 
-        # === B. Excel/CSV 处理 (不动) ===
         if is_path:
             if filename.endswith('.csv'):
                 try:
@@ -286,7 +261,6 @@ def load_data_from_file(file_path_or_buffer, is_path=False):
 
 
 def check_answer(q_id, user_ans, correct_ans, threshold=1):
-    # 清洗答案中的逗号，确保 A,B 和 AB 能匹配
     clean_user = user_ans.replace(',', '').replace(' ', '')
     clean_correct = correct_ans.replace(',', '').replace(' ', '')
 
@@ -322,7 +296,7 @@ def check_answer(q_id, user_ans, correct_ans, threshold=1):
 if not st.session_state.all_questions:
     load_all_data()
 
-# ================= 界面构建 (不动) =================
+# ================= 界面构建 =================
 with st.sidebar:
     st.header("📚 题库管理")
     uploaded_file = st.file_uploader("上传题库文件", type=["xlsx", "xls", "csv", "md"])
@@ -349,6 +323,13 @@ with st.sidebar:
                 st.rerun()
 
     st.info(f"当前总题数: {len(st.session_state.all_questions)}")
+
+    # ========= 【修改点：新增清空题库按钮】 =========
+    if st.button("🧨 彻底清空题库"):
+        clear_local_data()
+        st.rerun()
+    # ============================================
+
     st.divider()
 
     # 模式选择
@@ -379,9 +360,12 @@ with st.sidebar:
         if target_pool:
             curr = st.session_state[current_index_key]
             total = len(target_pool)
-            if curr >= total: curr = 0
-            st.progress((curr + 1) / total)
-            st.caption(f"进度: {curr + 1} / {total}")
+
+            # 显示进度条
+            progress_val = (curr + 1) / total if total > 0 else 0
+            if progress_val > 1: progress_val = 1
+            st.progress(progress_val)
+            st.caption(f"进度: {min(curr + 1, total)} / {total}")
 
         st.divider()
         if st.button("🗑️ 清空进度 (保留题库)"):
@@ -392,11 +376,12 @@ with st.sidebar:
             save_all_data()
             st.rerun()
 
-# ================= 主答题区 (不动) =================
+# ================= 主答题区 =================
 
 if not st.session_state.all_questions:
     st.info("👈 请在左侧上传题库。")
 else:
+    # 1. 确定当前题目池
     if st.session_state.mode == 'practice':
         question_pool = st.session_state.all_questions
         current_index_key = 'practice_index'
@@ -410,6 +395,7 @@ else:
                     question_pool.append(q)
         current_index_key = 'wrong_index'
 
+    # 2. 如果没有题了
     if not question_pool:
         if st.session_state.mode == 'wrong':
             st.balloons()
@@ -417,10 +403,26 @@ else:
         else:
             st.warning("⚠️ 题库数据异常")
     else:
+        # 3. 获取当前索引
         curr_idx = st.session_state[current_index_key]
+
+        # 处理刷完一轮的情况
         if curr_idx >= len(question_pool):
-            curr_idx = 0
-            st.session_state[current_index_key] = 0
+            if st.session_state.mode == 'wrong':
+                st.success(f"🎉 本轮错题复习完成！共复习了 {len(question_pool)} 道题。")
+                st.info("💡 刚才做对且达标的题目已自动移出，点击下方按钮开始新一轮。")
+
+                # 重新刷按钮
+                if st.button("🔄 重新刷错题本"):
+                    st.session_state[current_index_key] = 0
+                    st.rerun()
+
+                # 停止渲染下面的内容
+                st.stop()
+            else:
+                # 练习模式保持循环
+                curr_idx = 0
+                st.session_state[current_index_key] = 0
 
         q = question_pool[curr_idx]
         q_stat = st.session_state.stats.get(str(q['id']), {'errors': 0, 'streak': 0})
@@ -463,7 +465,8 @@ else:
                     st.rerun()
         with col2:
             if st.button("下一题 ➡️"):
-                if st.session_state[current_index_key] < len(question_pool) - 1:
+                limit = len(question_pool) if st.session_state.mode == 'wrong' else len(question_pool) - 1
+                if st.session_state[current_index_key] < limit:
                     st.session_state[current_index_key] += 1
                     save_all_data()
                     st.rerun()
